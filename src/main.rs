@@ -1,9 +1,22 @@
-use anyhow::{anyhow, Result};
+use std::collections::HashMap;
+
+use anyhow::Result;
 use board::Board;
-use input::Player;
+use itertools::Itertools;
+use rand::Rng;
 
 mod board;
-mod input;
+
+const THREE_IN_A_ROW: [[usize; 3]; 8] = [[1, 2, 3], [4, 5, 6], [7, 8, 9], [1, 4, 7], [2, 5, 8], [3, 6, 9], [1, 5, 9], [3, 5, 7]];
+
+#[derive(Debug, Clone, Copy)]
+enum Player {
+    Human,
+    Random,
+    FindWinning,
+    BlockLosing,
+    Optimal,
+}
 
 struct Game {
     board: Board,
@@ -11,6 +24,7 @@ struct Game {
     done: bool,
     p1: Player,
     p2: Player,
+    cache: HashMap<String, usize>,
 }
 
 impl Game {
@@ -34,27 +48,24 @@ impl Game {
     }
 
     pub fn new() -> Self {
-        use input::PlayerType::*;
         Game { 
             board: Board::new(),
-            p1: Player::new('X', Human),
-            p2: Player::new('O', Human),
+            p1: Player::Human,
+            p2: Player::Human,
             p1_turn: true,
             done: false,
+            cache: HashMap::new(),
         }
     }
 
-    pub fn set_player(&mut self, player: u32, buf: &mut String) -> Result<()> {
-        if player == 0 || player > 2 {
-            return Err(anyhow!("invalid player id"));
-        }
-        let (player, name) = if player == 1 {
-            (&mut self.p1, 'X')
+    pub fn set_player(&mut self, buf: &mut String) -> Result<()> {
+        let first = self.p1_turn;
+        let player = if first {
+            &mut self.p1
         } else {
-            (&mut self.p2, 'O')
+            &mut self.p2
         };
-
-        let query = format!("Player {name} human?");
+        let query = format!("Player {} human?", Board::player(first));
 
         if !Self::get_y_n_input(&query, buf) {
             loop {
@@ -63,35 +74,34 @@ impl Game {
                 std::io::stdin()
                     .read_line(buf)
                     .expect("could not read line");
-                use input::PlayerType::*;
                 match buf.trim().parse::<i32>() {
-                    Ok(1) => *player = Player::new(name, Random),
-                    Ok(2) => *player = Player::new(name, FindWinning),
-                    Ok(3) => *player = Player::new(name, BlockLosing),
+                    Ok(1) => *player = Player::Random,
+                    Ok(2) => *player = Player::FindWinning,
+                    Ok(3) => *player = Player::BlockLosing,
+                    Ok(4) => *player = Player::Optimal,
                     _ => continue,
                 }
                 break;
             }
         }
+        self.p1_turn = !self.p1_turn;
         Ok(())
+    }
+
+    pub fn get_move(&mut self, player: Player, buf: &mut String) -> usize {
+        match player {
+            Player::Human => self.get_input(buf),
+            Player::Random => self.pick_random_open_move(),
+            Player::FindWinning => self.only_find_winning(),
+            Player::BlockLosing => self.find_winning_block_losing(),
+            Player::Optimal => self.pick_optimal_move(),
+        }
     }
 
     pub fn reset(&mut self) {
         self.board.reset();
         self.p1_turn = true;
         self.done = false;
-    }
-
-    pub fn get_input(&mut self, buf: &mut String) -> bool {
-        buf.clear();
-        let curr = self.curr_player();
-        let input = curr.make_move(&self.board, buf);
-        if let Err(e) = self.board.set_cell(input, self.curr_player().name()) {
-            println!("{}", e.to_string());
-            false
-        } else {
-            true
-        }
     }
 
     // pub fn from_player_info(p1: char, p1_human: bool, p2: char, p2_human: bool) -> Result<Self> {
@@ -112,11 +122,11 @@ impl Game {
     //     }
     // }
 
-    fn curr_player(&self) -> &Player {
+    fn curr_player(&self) -> Player {
         if self.p1_turn {
-            &self.p1
+            self.p1
         } else {
-            &self.p2
+            self.p2
         }
     }
 
@@ -126,13 +136,10 @@ impl Game {
     }
 
     pub fn run(&mut self, buf: &mut String) {
-        let mut input_valid;
         while !self.done {
-            input_valid = false;
-            while !input_valid {
-                self.render();
-                input_valid = self.get_input(buf);
-            }
+            self.render();
+            let input = self.get_move(self.curr_player(), buf);
+            self.board.set_cell(input, self.p1_turn).unwrap();
             if let Some(winner) = self.board.check_matches() {
                 self.done = true;
                 self.render();
@@ -144,7 +151,125 @@ impl Game {
             }
             self.p1_turn = !self.p1_turn;
         }
+    }
+
+    // move input functions
+    pub fn get_input(&mut self, buf: &mut String) -> usize {
+        loop {
+            buf.clear();
+            println!("Player {}, please select an empty cell 1-9: ", Board::player(self.p1_turn));
+            std::io::stdin()
+                .read_line(buf)
+                .expect("could not read line");
+            if let Ok(n @ 1..=9) = buf.trim().parse::<usize>() {
+                if self.board.get_open_spaces().contains(&n){
+                    return n;
+                }
+            }
+        }
+    }
+
+    pub fn pick_random_open_move(&self) -> usize {
+        let open = self.board
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| c.is_numeric())
+            .map(|(i, _)| i + 1)
+            .collect_vec();
+
+        let guess = rand::thread_rng().gen_range(0..open.len());
+        *open.get(guess).unwrap()
+    }
+
+    fn check_win_loss(&self) -> Vec<(usize, bool)> {
+        let cell = |i| self.board.get_cell(i).expect("invalid index");
+        let check_win_loss = |a,b,c| match [cell(a), cell(b), cell(c)] {
+            [Some(x), Some(y), None] => if x == y {
+                Some((c, x == Board::player(self.p1_turn)))
+            } else {
+                None
+            },
+            [Some(x), None, Some(y)] => if x == y {
+                Some((b, x == Board::player(self.p1_turn)))
+            } else {
+                None
+            },
+            [None, Some(x), Some(y)] => if x == y {
+                Some((a, x == Board::player(self.p1_turn)))
+            } else {
+                None
+            },
+            _ => None
+        };
+
+        THREE_IN_A_ROW.iter()
+            .map(|[a, b, c]| check_win_loss(*a, *b, *c))
+            .filter(|i| i.is_some())
+            .map(|i| i.unwrap())
+            .collect()
+    }
+    
+    fn only_find_winning(&self) -> usize {
+        for (i, b) in self.check_win_loss() {
+            if b {
+                return i;
+            }
+        }
+        self.pick_random_open_move()
+    }
+
+    fn find_winning_block_losing(&self) -> usize {
+        // Prioritize winning over blocking a loss over picking at random
+        match self.check_win_loss().iter().find_or_first(|(_, b)| *b) {
+            Some((best, _)) => *best,
+            _ => self.pick_random_open_move(),
+        }
+    }
+
+    fn pick_optimal_move(&mut self) -> usize {
+        let board = &self.board;
+        let state = board.state_key();
+        if let Some(&i) = self.cache.get(&state) {
+            return i;
+        }
+        let mut best = 0;
+        let mut res = 0;
+        for i in board.get_open_spaces() {
+            let mut board = board.clone();
+            if let Ok(_) = board.set_cell(i, self.p1_turn) {
+                let minmax = minmax_score(self.p1_turn, &board);
+                if self.p1_turn == (minmax > best) {
+                    best = minmax;
+                    res = i;
+                }
+            }
+        }
+        self.cache.insert(state, res);
+        res
     }    
+}
+
+fn minmax_score(first: bool, board: &Board) -> i32 {
+    if let Some(w) = board.check_matches() {
+        match w {
+            'X' => return 10,
+            _ => return -10,
+        }
+    } else if board.is_full() {
+        return 0;
+    };
+    let options = board.get_open_spaces();
+    let res = options
+        .iter()
+        .map(|i| {
+            let mut board = board.clone();
+            board.set_cell(i + 1, first).unwrap();
+        minmax_score(!first, &board)
+    });
+    match first {
+        true => res.max().unwrap(),
+        false => res.min().unwrap(),
+    }
 }
 
 fn main() {
@@ -156,8 +281,8 @@ fn main() {
         .read_line(&mut buf)
         .expect("could not read line");
     loop {
-        game.set_player(1, &mut buf).unwrap();
-        game.set_player(2, &mut buf).unwrap();
+        game.set_player(&mut buf).unwrap();
+        game.set_player(&mut buf).unwrap();
         game.run(&mut buf);
         if !Game::get_y_n_input("Play again?", &mut buf) {
             break;
