@@ -24,7 +24,7 @@ struct Game {
     done: bool,
     p1: Player,
     p2: Player,
-    cache: HashMap<String, usize>,
+    cache: HashMap<String, i32>,
 }
 
 impl Game {
@@ -104,24 +104,6 @@ impl Game {
         self.done = false;
     }
 
-    // pub fn from_player_info(p1: char, p1_human: bool, p2: char, p2_human: bool) -> Result<Self> {
-    //     // Probably not necessary if you validate at time of input but definitely best practice
-    //     if p1 == p2 {
-    //         Err(anyhow!("You cannot use the same character for both players!"))
-    //     } else if p1.is_numeric() || p2.is_numeric() {
-    //         Err(anyhow!("Numeric player identifiers are not supported!"))
-    //     } else {
-    //         Ok(Self { 
-    //             board: Grid::from_vec(vec!['1', '2', '3', '4', '5', '6', '7', '8', '9'], 3), 
-    //             p1: Player::new(p1, p1_human), 
-    //             p2: Player::new(p2, p2_human), 
-    //             p1_turn: true,
-    //             done: false,
-    //             buf: String::new(),
-    //         })
-    //     }
-    // }
-
     fn curr_player(&self) -> Player {
         if self.p1_turn {
             self.p1
@@ -170,13 +152,7 @@ impl Game {
     }
 
     pub fn pick_random_open_move(&self) -> usize {
-        let open = self.board
-            .iter()
-            .enumerate()
-            .filter(|(_, c)| c.is_numeric())
-            .map(|(i, _)| i + 1)
-            .collect_vec();
-
+        let open = self.board.get_open_spaces();
         let guess = rand::thread_rng().gen_range(0..open.len());
         *open.get(guess).unwrap()
     }
@@ -227,50 +203,57 @@ impl Game {
     }
 
     fn pick_optimal_move(&mut self) -> usize {
-        let board = &self.board;
-        let state = board.state_key();
-        if let Some(&i) = self.cache.get(&state) {
-            return i;
+        let mut board = self.board.clone();
+        let first = self.p1_turn;
+        let open = self.board.get_open_spaces();
+        let scores = open
+            .iter()
+            .map(|i| {
+                board.set_cell(*i, first).unwrap();
+                (i, self.minimax_score(self.p1_turn, &board))
+            });
+        if first {
+            *scores.max_by_key(|(_, m)| *m)
+            .unwrap()
+            .0
+        } else {
+            *scores.min_by_key(|(_, m)| *m)
+            .unwrap()
+            .0
         }
-        let mut best = 0;
-        let mut res = 0;
-        for i in board.get_open_spaces() {
-            let mut board = board.clone();
-            if let Ok(_) = board.set_cell(i, self.p1_turn) {
-                let minmax = minmax_score(self.p1_turn, &board);
-                if self.p1_turn == (minmax > best) {
-                    best = minmax;
-                    res = i;
-                }
-            }
-        }
-        self.cache.insert(state, res);
-        res
-    }    
-}
+    }
 
-fn minmax_score(first: bool, board: &Board) -> i32 {
-    if let Some(w) = board.check_matches() {
-        match w {
-            'X' => return 10,
-            _ => return -10,
+    fn minimax_score(&mut self, first: bool, board: &Board) -> i32 {
+        let state = board.state_key();
+        if let Some(&s) = self.cache.get(&state) {
+            return s;
         }
-    } else if board.is_full() {
-        return 0;
-    };
-    let options = board.get_open_spaces();
-    let res = options
-        .iter()
-        .map(|i| {
-            let mut board = board.clone();
-            board.set_cell(i + 1, first).unwrap();
-        minmax_score(!first, &board)
-    });
-    match first {
-        true => res.max().unwrap(),
-        false => res.min().unwrap(),
+        if let Some(w) = board.check_matches() {
+            match w {
+                'X' => return 10,
+                _ => return -10,
+            }
+        } else if board.is_full() {
+            return 0;
+        };
+        let options = board.get_open_spaces();
+        let res = options
+            .iter()
+            .map(|i| {
+                let mut board = board.clone();
+                board.set_cell(*i, first).unwrap();
+                self.minimax_score(!first, &board)
+            });
+        let best = match first {
+            true => res.max().unwrap(),
+            false => res.min().unwrap(),
+        };
+        self.cache.insert(state, best);
+        best
     }
 }
+
+
 
 fn main() {
     let mut buf = String::new();

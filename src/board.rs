@@ -149,9 +149,7 @@ impl Board {
     }
     
     pub fn is_full(&self) -> bool {
-        self.grid
-            .iter()
-            .all(|c| c.is_numeric())
+        self.get_open_spaces().len() == 0
     }
 
     pub fn get_cell(&self, i: usize) -> Result<Option<char>> {
