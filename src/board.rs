@@ -1,9 +1,14 @@
 use anyhow::{anyhow, Result};
 use grid::Grid;
 
-const EMPTY: [char; 9] = ['1', '2', '3', '4', '5', '6', '7', '8', '9'];
+#[rustfmt::skip]
+const EMPTY: [char; 9] = [
+    '1', '2', '3', 
+    '4', '5', '6', 
+    '7', '8', '9'
+];
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Board {
     grid: Grid<char>,
 }
@@ -19,12 +24,6 @@ impl std::fmt::Display for Board {
             print_row(1),
             print_row(2)
         )
-    }
-}
-
-impl PartialEq for Board {
-    fn eq(&self, other: &Self) -> bool {
-        self.grid == other.grid
     }
 }
 
@@ -136,17 +135,15 @@ impl Board {
     }
 
     pub fn flip_v(&self) -> Board {
-        let row0 = self.grid.iter_row(0);
-        let row1 = self.grid.iter_row(1);
-        let row2 = self.grid.iter_row(2);
-        Self::from_vec(row2.chain(row1).chain(row0).cloned().collect())
+        // rows in reversed order
+        let row = |i| self.grid.iter_row(i);
+        Self::from_vec(row(2).chain(row(1)).chain(row(0)).cloned().collect())
     }
 
     pub fn flip_h(&self) -> Board {
-        let row0 = self.grid.iter_row(0).rev();
-        let row1 = self.grid.iter_row(1).rev();
-        let row2 = self.grid.iter_row(2).rev();
-        Self::from_vec(row0.chain(row1).chain(row2).cloned().collect())
+        // rows in original order, but each reversed
+        let row = |i| self.grid.iter_row(i).rev();
+        Self::from_vec(row(0).chain(row(1)).chain(row(2)).cloned().collect())
     }
 
     pub fn transpose(&self) -> Board {
@@ -180,6 +177,7 @@ impl Board {
 }
 
 #[cfg(test)]
+#[rustfmt::skip]
 mod tests {
     use super::*;
     #[test]
@@ -187,32 +185,56 @@ mod tests {
         let board = Board::new();
         assert_eq!(
             board.flip_h(),
-            Board::from_vec(vec!['3', '2', '1', '6', '5', '4', '9', '8', '7'])
+            Board::from_vec(vec![
+                '3', '2', '1', 
+                '6', '5', '4', 
+                '9', '8', '7'
+            ])
         );
 
         assert_eq!(
             board.flip_v(),
-            Board::from_vec(vec!['7', '8', '9', '4', '5', '6', '1', '2', '3'])
+            Board::from_vec(vec![
+                '7', '8', '9', 
+                '4', '5', '6', 
+                '1', '2', '3'
+            ])
         );
 
         assert_eq!(
             board.transpose().flip_v(),
-            Board::from_vec(vec!['3', '6', '9', '2', '5', '8', '1', '4', '7'])
+            Board::from_vec(vec![
+                '3', '6', '9', 
+                '2', '5', '8', 
+                '1', '4', '7'
+            ])
         );
 
         assert_eq!(
             board.flip_h().flip_v(),
-            Board::from_vec(vec!['9', '8', '7', '6', '5', '4', '3', '2', '1'])
+            Board::from_vec(vec![
+                '9', '8', '7', 
+                '6', '5', '4', 
+                '3', '2', '1'
+            ])
         );
 
         assert_eq!(
             board.transpose().flip_h(),
-            Board::from_vec(vec!['7', '4', '1', '8', '5', '2', '9', '6', '3'])
+            Board::from_vec(vec![
+                '7', '4', '1', 
+                '8', '5', '2', 
+                '9', '6', '3'
+            ])
         );
 
         assert_eq!(
             board.transpose().flip_v().flip_h(),
-            Board::from_vec(vec!['9', '6', '3', '8', '5', '2', '7', '4', '1'])
+            Board::from_vec(vec![
+                '9', '6', '3', 
+                '8', '5', '2', 
+                '7', '4', '1'
+            ])
         );
     }
 }
