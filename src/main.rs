@@ -198,28 +198,28 @@ impl Game {
         // Prioritize winning over blocking a loss over picking at random
         match self.check_win_loss().iter().find_or_first(|(_, b)| *b) {
             Some((best, _)) => *best,
-            _ => self.pick_random_open_move(),
+            None => self.pick_random_open_move(),
         }
     }
 
     fn pick_optimal_move(&mut self) -> usize {
-        let mut board = self.board.clone();
         let first = self.p1_turn;
         let open = self.board.get_open_spaces();
         let scores = open
             .iter()
             .map(|i| {
+                let mut board = self.board.clone();
                 board.set_cell(*i, first).unwrap();
-                (i, self.minimax_score(self.p1_turn, &board))
+                (i, self.minimax_score(!first, &board))
             });
         if first {
-            *scores.max_by_key(|(_, m)| *m)
+            scores.max_by_key(|(_, m)| *m)
+            .map(|(i, _)| *i)
             .unwrap()
-            .0
         } else {
-            *scores.min_by_key(|(_, m)| *m)
+            scores.min_by_key(|(_, m)| *m)
+            .map(|(i, _)| *i)
             .unwrap()
-            .0
         }
     }
 
@@ -244,12 +244,12 @@ impl Game {
                 board.set_cell(*i, first).unwrap();
                 self.minimax_score(!first, &board)
             });
-        let best = match first {
+        let score = match first {
             true => res.max().unwrap(),
             false => res.min().unwrap(),
         };
-        self.cache.insert(state, best);
-        best
+        self.cache.insert(state, score);
+        score
     }
 }
 
