@@ -152,6 +152,8 @@ impl Board {
         }
     }
 
+    // Computes a string representation of the current unique game state
+    // Rotations, reflections, transpositions, and combinations thereof will all generate the same key
     pub fn state_key(&self) -> String {
         let base = self.state();
         let mut states: Vec<String> = vec![];
@@ -170,7 +172,7 @@ impl Board {
         states.push(base.transpose().iter().collect());
         // Transpose and rotate 180 degrees
         states.push(base.transpose().flip_v().flip_h().iter().collect());
-        // Take whichever permutation results in the smallest string
+        // Take whichever permutation results in the smallest string by value
         states.into_iter().min().unwrap()
     }
 
